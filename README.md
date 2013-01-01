@@ -11,7 +11,7 @@ Assuming gcc and make are installed, building the program is as easy as running 
 
 Usage
 -----
-Simply typing `./lsupnp` should work in most cases. You may find the following command-line options useful:
+Type `./lsupnp` at the command line. You may find the following command-line options useful:
 
 -p [port]: Bind the source UDP port to the specified port number. This option is useful if you are running a firewall, because devices send their responses to the same UDP port that sent the discovery request. Therefore you can add a firewall rule to allow device responses through on the specified port.
 
