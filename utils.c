@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "utils.h"
 
@@ -68,7 +69,7 @@ int str_vector_add(struct str_vector *vector, char *str)
  * Function: str_vector_search()
  * Purpose: Given a pointer to string *search_str, see if it is 
  *          in *vector
- * Returns: TRUE if *search_str is in *vector, FALSE otherwise
+ * Returns: true if *search_str is in *vector, false otherwise
  * *******************************************************************
  */
 int str_vector_search(struct str_vector *vector, char *search_str)
@@ -78,10 +79,10 @@ int str_vector_search(struct str_vector *vector, char *search_str)
     for (i = 0; i < vector->str_count; i++)
     {
         if ( strcmp(vector->str_array[i], search_str) == 0 )
-            return(TRUE);
+            return(true);
     }
 
-    return(FALSE);
+    return(false);
 }
 
 /*

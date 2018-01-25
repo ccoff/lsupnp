@@ -24,13 +24,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 #include <unistd.h>
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <stdbool.h>
+#include <errno.h>
 
 #include "utils.h"
 
@@ -39,21 +40,37 @@
 
 #define MAX_BUFFER_LEN              8192
 
+static const char ssdp_discover_string[] =
+    "M-SEARCH * HTTP/1.1\r\n"
+    "HOST: 239.255.255.250:1900\r\n"
+    "MAN: \"ssdp:discover\"\r\n"
+    "MX: 3\r\n"
+    "ST: ssdp:all\r\n"
+    "\r\n";
 
-/* Globals */
+/* Globals - command-line options */
 int opt_source_port = 0;
-int opt_verbose = FALSE;
-int opt_dns_lookup = FALSE;
+int opt_verbose = false;
+int opt_rdns_lookup = false;
 
 /* Functions */
-int discover_hosts (struct str_vector *vector);
-int dns_lookup(char *ip_addr, char *hostname, int hostname_size);
-int parse_cmd_opts (int argc, char *argv[]);
+int discover_hosts(struct str_vector *vector);
+int send_ssdp_request(int sock);
+int get_ssdp_responses(int sock, struct str_vector *vector);
+int rdns_lookup(char *ip_addr, char *hostname, int hostname_size);
+int parse_cmd_opts(int argc, char *argv[]);
 
 
+/*
+ * *******************************************************************
+ * Function: main()
+ * Purpose: Discover all UPnP devices on a network and print them out.
+ * Returns: 0 on success, non-zero if error occurred.
+ * *******************************************************************
+ */
 int main (int argc, char *argv[])
 {
-    int ret;
+    int ret = 0;
     struct str_vector my_vector;
     
     parse_cmd_opts(argc, argv);
@@ -67,37 +84,25 @@ int main (int argc, char *argv[])
     return(ret);
 }
 
-
 /*
  * *******************************************************************
  * Function: discover_hosts()
- * Purpose: Discover UPnP hosts on a network
- * Returns: 0 on success, -1 otherwise
+ * Purpose: Open a socket, send the SSDP request, and listen for any 
+ *          responses back.
+ * Returns: 0 on success, non-zero if error occurred.
  * *******************************************************************
  */
 int discover_hosts (struct str_vector *vector)
 {
-    int ret, sock, bytes_in, done = FALSE;
-    unsigned int host_sock_len;
-    struct sockaddr_in src_sock, dest_sock, host_sock;
-    char buffer[MAX_BUFFER_LEN];
-    char host[NI_MAXHOST];
-    char *ssdp_discover_string =
-        "M-SEARCH * HTTP/1.1\r\n"
-        "HOST: 239.255.255.250:1900\r\n"
-        "MAN: \"ssdp:discover\"\r\n"
-        "MX: 3\r\n"
-        "ST: ssdp:all\r\n"
-        "\r\n";
-    char *url_start, *host_start, *host_end;
-    fd_set read_fds;
-    struct timeval timeout;
+    int ret = 0, sock;
+    struct sockaddr_in src_sock;
     
     /* Get a socket */
-    if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) == -1) 
+    if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) 
     {
+        ret = errno;
         perror("socket()");
-        return(-1);
+        return(ret);
     }
 
     /* Bind client-side (source) port to socket */
@@ -106,14 +111,49 @@ int discover_hosts (struct str_vector *vector)
     src_sock.sin_addr.s_addr = htonl(INADDR_ANY);
     src_sock.sin_port = htons(opt_source_port);
 
-    if ( (bind(sock, (struct sockaddr *)&src_sock, 
-                             sizeof(src_sock))) == -1 ) 
+    if ((ret = bind(sock, (struct sockaddr *)&src_sock, 
+                            sizeof(src_sock))) != 0 ) 
     {
+        ret = errno;
         perror("bind()");
-        return(-1);
+        goto close_socket;
     }
-    else if ( (opt_verbose == TRUE) && (opt_source_port != 0) )
+    else if ( (opt_verbose == true) && (opt_source_port != 0) )
         printf("[Client bound to port %d]\n\n", opt_source_port);
+
+    /* Send SSDP request */
+    if ((ret = send_ssdp_request(sock)) != 0)
+    {
+        goto close_socket;
+    }
+
+    /* Get SSDP responses */
+    if ((ret = get_ssdp_responses(sock, vector)) != 0)
+    {
+        goto close_socket;
+    }
+
+close_socket:
+    if ( close(sock) != 0 )
+    {
+        ret = errno;
+        perror("close()");
+    }
+
+    return(ret);
+}
+
+/*
+ * *******************************************************************
+ * Function: send_ssdp_request()
+ * Purpose: Send the SSDP request string.
+ * Returns: 0 on success, non-zero if error occurred.
+ * *******************************************************************
+ */
+int send_ssdp_request(int sock)
+{
+    int ret = 0, len, bytes_out;
+    struct sockaddr_in dest_sock;
 
     /* Prepare destination info */
     memset(&dest_sock, 0, sizeof(dest_sock));
@@ -122,24 +162,46 @@ int discover_hosts (struct str_vector *vector)
     inet_pton(AF_INET, SSDP_MULTICAST_ADDRESS, &dest_sock.sin_addr);
 
     /* Send SSDP request */
-    if ( (ret = sendto(sock, ssdp_discover_string, 
-                             strlen(ssdp_discover_string), 0, 
+    len = strlen(ssdp_discover_string);
+
+    if ((bytes_out = sendto(sock, ssdp_discover_string, 
+                             len, 0, 
                              (struct sockaddr*) &dest_sock, 
-                             sizeof(dest_sock))) == -1) 
+                             sizeof(dest_sock))) < 0) 
     {
+        ret = errno;
         perror("sendto()");
-        return(-1);
+        return(ret);
     }
-    else if (ret != strlen(ssdp_discover_string)) 
+    else if (bytes_out != len) 
     {
-        fprintf(stderr, "sendto(): only sent %d of %d bytes\n", 
-                             ret, (int)strlen(ssdp_discover_string));
+        fprintf(stderr, "sendto(): only sent %d of %d bytes\n", bytes_out, len);
         return(-1);
     }
-    else if ( opt_verbose == TRUE )
+    else if ( opt_verbose == true )
         printf("%s\n", ssdp_discover_string);
 
-    /* Get SSDP response */
+    return ret;
+}
+
+/*
+ * *******************************************************************
+ * Function: get_ssdp_responses()
+ * Purpose: Process all incoming SSDP responses.
+ * Returns: 0 on success, non-zero if error occurred.
+ * *******************************************************************
+ */
+int get_ssdp_responses(int sock, struct str_vector *vector)
+{
+    int ret = 0, bytes_in, done = false;
+    unsigned int host_sock_len;
+    struct sockaddr_in host_sock;
+    char buffer[MAX_BUFFER_LEN];
+    char host[NI_MAXHOST];
+    char *url_start, *host_start, *host_end;
+    fd_set read_fds;
+    struct timeval timeout;
+
     FD_ZERO(&read_fds);
     FD_SET(sock, &read_fds);
     timeout.tv_sec = 5;
@@ -148,26 +210,29 @@ int discover_hosts (struct str_vector *vector)
     /* Loop through SSDP discovery request responses */
     do
     {
-        if (select(sock+1, &read_fds, NULL, NULL, &timeout) == -1) 
+        if ((ret = select(sock+1, &read_fds, NULL, NULL, &timeout)) < 0) 
         {
+            ret = errno;
             perror("select()");
-            return(-1);
+            return(ret);
         }
 
         if (FD_ISSET(sock, &read_fds))
         {
             host_sock_len = sizeof(host_sock);
             if ((bytes_in = recvfrom(sock, buffer, sizeof(buffer), 0, 
-                                    &host_sock, &host_sock_len)) == -1)
+                                    &host_sock, &host_sock_len)) < 0)
             {
+                ret = errno;
                 perror("recvfrom()");
-                return(-1);
+                return(ret);
             }
             buffer[bytes_in] = '\0';
 
+            /* Parse valid responses */
             if (strncmp(buffer, "HTTP/1.1 200 OK", 12) == 0)
             {
-                if ( opt_verbose == TRUE ) 
+                if ( opt_verbose == true ) 
                 {
                     printf("\n%s", buffer);
                 }
@@ -186,18 +251,18 @@ int discover_hosts (struct str_vector *vector)
                             host[host_end - host_start] = '\0';
 
                             /* Add host to vector if we haven't done so already */
-                            if ( str_vector_search(vector, host) == FALSE )
+                            if ( str_vector_search(vector, host) == false )
                             {
                                 str_vector_add(vector, host);
                                 printf("%s", host);
 
-                                /* Are we doing lookups? */
-                                if ( opt_dns_lookup == TRUE )
+                                /* Are we doing reverse lookups? */
+                                if ( opt_rdns_lookup == true )
                                 {
                                     char name[NI_MAXHOST];
                                     name[0] = '\0';
 
-                                    if ( (dns_lookup(host, name, NI_MAXHOST)) == 0 )
+                                    if ( (rdns_lookup(host, name, NI_MAXHOST)) == 0 )
                                     {
                                         printf("\t%s", name);
                                     }
@@ -212,7 +277,7 @@ int discover_hosts (struct str_vector *vector)
             else
             {
                 fprintf(stderr, "[Unexpected SSDP response]\n");
-                if ( opt_verbose == TRUE ) 
+                if ( opt_verbose == true ) 
                 {
                     printf("%s\n\n", buffer);
                 }
@@ -221,27 +286,23 @@ int discover_hosts (struct str_vector *vector)
         else 
         {
             /* select() timed out, so we're done */
-            done = TRUE;
+            done = true;
         }
 
-    } while ( done == FALSE );
+    } while ( done == false );
 
-    if ( close(sock) == -1 )
-        perror("close()");
-
-    return(0);
+    return ret;
 }
-
 
 /*
  * *******************************************************************
- * Function: dns_lookup()
+ * Function: rdns_lookup()
  * Purpose: Given an IP address in *ip_addr, return its hostname in 
  *           *hostname, not to exeed hostname_size
  * Returns: 0 on success
  * *******************************************************************
  */
-int dns_lookup(char *ip_addr, char *hostname, int hostname_size)
+int rdns_lookup(char *ip_addr, char *hostname, int hostname_size)
 {
     int ret;
     struct sockaddr_in sa;
@@ -258,7 +319,6 @@ int dns_lookup(char *ip_addr, char *hostname, int hostname_size)
 
     return(ret);
 }
-
 
 /*
  * *******************************************************************
@@ -279,10 +339,10 @@ int parse_cmd_opts (int argc, char *argv[])
                 opt_source_port = atoi(optarg);
                 break;
             case 'r':
-                opt_dns_lookup = TRUE;
+                opt_rdns_lookup = true;
                 break;
             case 'v':
-                opt_verbose = TRUE;
+                opt_verbose = true;
                 break;
             default:
                 printf("\nUsage: %s [OPTION]...", argv[0]);

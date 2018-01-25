@@ -6,11 +6,6 @@
 #ifndef __LSUPNP_UTILS_H__
 #define __LSUPNP_UTILS_H__
 
-#if !defined TRUE && !defined FALSE
-#define TRUE    1
-#define FALSE   0
-#endif
-
 struct str_vector {
     char **str_array;
     int str_count;
