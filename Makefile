@@ -1,7 +1,7 @@
 # lsupnp Makefile 
 
 CC = gcc
-CFLAGS = -g -O0 -Wall
+CFLAGS = -g -O0 -Wall -std=gnu99
 LDFLAGS = -g
 
 LIBSRC = utils.c
