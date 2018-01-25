@@ -68,7 +68,7 @@ int parse_cmd_opts(int argc, char *argv[]);
  * Returns: 0 on success, non-zero if error occurred.
  * *******************************************************************
  */
-int main (int argc, char *argv[])
+int main(int argc, char *argv[])
 {
     int ret = 0;
     struct str_vector my_vector;
@@ -92,7 +92,7 @@ int main (int argc, char *argv[])
  * Returns: 0 on success, non-zero if error occurred.
  * *******************************************************************
  */
-int discover_hosts (struct str_vector *vector)
+int discover_hosts(struct str_vector *vector)
 {
     int ret = 0, sock;
     struct sockaddr_in src_sock;
@@ -327,7 +327,7 @@ int rdns_lookup(char *ip_addr, char *hostname, int hostname_size)
  * Returns: 0 on success, exits on failure
  * *******************************************************************
  */
-int parse_cmd_opts (int argc, char *argv[])
+int parse_cmd_opts(int argc, char *argv[])
 {
     int cmdopt;
 
@@ -352,7 +352,7 @@ int parse_cmd_opts (int argc, char *argv[])
                 printf("  -r\t\tDo reverse DNS lookups\n");
                 printf("  -v\t\tProvide verbose information\n");
                 printf("\n");
-                exit(EXIT_FAILURE);
+                exit(0);
         }
     }
 
