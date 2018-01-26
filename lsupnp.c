@@ -48,10 +48,11 @@ static const char ssdp_discover_string[] =
     "ST: ssdp:all\r\n"
     "\r\n";
 
-/* Globals - command-line options */
+/* Globals - command-line option defaults */
 int opt_source_port = 0;
 int opt_verbose = false;
 int opt_rdns_lookup = false;
+int opt_timeout = 5;
 
 /* Functions */
 int discover_hosts(struct str_vector *vector);
@@ -204,7 +205,7 @@ int get_ssdp_responses(int sock, struct str_vector *vector)
 
     FD_ZERO(&read_fds);
     FD_SET(sock, &read_fds);
-    timeout.tv_sec = 5;
+    timeout.tv_sec = opt_timeout;
     timeout.tv_usec = 0;
 
     /* Loop through SSDP discovery request responses */
@@ -331,7 +332,7 @@ int parse_cmd_opts(int argc, char *argv[])
 {
     int cmdopt;
 
-    while ( (cmdopt = getopt(argc, argv, "p:rv")) != -1 ) 
+    while ( (cmdopt = getopt(argc, argv, "p:rt:v")) != -1 ) 
     {
         switch (cmdopt) 
         {
@@ -340,6 +341,9 @@ int parse_cmd_opts(int argc, char *argv[])
                 break;
             case 'r':
                 opt_rdns_lookup = true;
+                break;
+            case 't':
+                opt_timeout = abs(atoi(optarg));
                 break;
             case 'v':
                 opt_verbose = true;
@@ -350,6 +354,7 @@ int parse_cmd_opts(int argc, char *argv[])
                 printf("Available options:\n\n");
                 printf("  -p [port]\tSpecify client-side (source) UDP port to bind to\n");
                 printf("  -r\t\tDo reverse DNS lookups\n");
+                printf("  -t [interval]\tSpecify timeout interval in seconds (default is %d)\n", opt_timeout);
                 printf("  -v\t\tProvide verbose information\n");
                 printf("\n");
                 exit(0);

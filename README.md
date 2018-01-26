@@ -11,11 +11,13 @@ Assuming gcc and make are installed, building the program is as easy as running 
 
 Usage
 -----
-Type `./lsupnp` at the command line. You may find the following command-line options useful:
+Type `./lsupnp` at the command line. The following command-line options are available:
 
 -p [port]: Bind the source UDP port to the specified port number. This option is useful if you are running a firewall, because devices send their responses to the same UDP port that sent the discovery request. Therefore you can add a firewall rule to allow device responses through on the specified port.
 
 -r: Do a reverse DNS lookup on the IP address of any responding device.
+
+-t [interval]: Specify the timeout interval in seconds. This controls how long to wait for SSDP responses.
 
 -v: Display verbose information, such as raw HTTP headers and responses.
 
